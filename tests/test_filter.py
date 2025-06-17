@@ -4,14 +4,28 @@ import tempfile
 from scapy.all import Ether, IP, TCP, UDP, wrpcap
 
 
-def run_filter(packets, orig_filter, ips):
+def run_filter(packets, orig_filter, ips, expect_code=0):
+    """Run the compiled filter binary and return its stdout lines.
+
+    Parameters
+    ----------
+    packets : list
+        Packets to write to a temporary pcap file.
+    orig_filter : str
+        libpcap filter expression.
+    ips : list[str]
+        Whitelisted IP addresses.
+    expect_code : int, optional
+        Expected process return code.  The default is 0.
+    """
     with tempfile.NamedTemporaryFile(delete=False, suffix='.pcap') as tmp:
         wrpcap(tmp.name, packets)
     try:
         cmd = ['./filter', tmp.name, orig_filter] + ips
-        result = subprocess.run(cmd, text=True, check=True, stdout=subprocess.PIPE)
-        output = [int(line) for line in result.stdout.strip().splitlines()]
-        return output
+        result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        assert result.returncode == expect_code, result.stderr
+        return [int(line) for line in result.stdout.strip().splitlines() if line]
     finally:
         os.unlink(tmp.name)
 
@@ -33,3 +47,28 @@ def test_many_ips():
     result = run_filter(packets, 'tcp', ips)
     expected = [1]*50 + [0] + [0]
     assert result == expected
+
+
+def test_invalid_ip():
+    packets = [Ether()/IP(src='1.1.1.1', dst='2.2.2.2')/TCP()]
+    run_filter(packets, 'tcp', ['bad.ip'], expect_code=3)
+
+
+def test_missing_args():
+    # invoke without whitelist IPs
+    packets = [Ether()/IP(src='1.1.1.1', dst='2.2.2.2')/TCP()]
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pcap') as tmp:
+        wrpcap(tmp.name, packets)
+    try:
+        cmd = ['./filter', tmp.name, 'tcp']
+        result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        assert result.returncode == 1
+    finally:
+        os.unlink(tmp.name)
+
+
+def test_too_many_ips():
+    ips = [f'192.168.0.{i}' for i in range(0, 256)]
+    packets = [Ether()/IP(src=ips[0], dst='1.1.1.1')/TCP()]
+    run_filter(packets, 'tcp', ips, expect_code=4)
