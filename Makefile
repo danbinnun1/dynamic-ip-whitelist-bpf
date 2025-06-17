@@ -6,7 +6,8 @@ filter: main.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 test: filter
-	pytest -v
+	coverage run -m pytest -v
+	coverage report -m
 
 clean:
 	rm -f filter
