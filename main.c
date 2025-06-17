@@ -49,7 +49,7 @@ struct bpf_insn *append_ip_whitelist(const struct bpf_insn *orig,
 #define CHECK(cond) \
     if (!(cond)) {   \
     printf("failed %s\n", #cond); \
-    return 1;}
+    return 2;}
 
 /**
  * return values:
@@ -59,13 +59,8 @@ struct bpf_insn *append_ip_whitelist(const struct bpf_insn *orig,
  */
 int main(int argc, char **argv)
 {
-    if (argc < 3)
-    {
-        fprintf(stderr,
-                "usage: %s <pcap-file> <orig-filter> [ip..]\n",
-                argv[0]);
-        return 1;
-    }
+    CHECK(argc >= 3)
+    
     const char *pcap_path = argv[1];
     const char *orig_expr = argv[2];
 
