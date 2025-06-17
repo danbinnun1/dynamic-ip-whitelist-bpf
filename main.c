@@ -86,7 +86,7 @@ struct bpf_insn *build_and_filter(const struct bpf_insn *orig,
     /* 2. Chain of JEQ instructions */
     for (size_t idx = 0; idx < n_ips; ++idx)
     {
-        uint32_t ip_be = htonl(ips[idx]);
+        uint32_t ip_be = ips[idx];
         uint8_t jt = (uint8_t)(n_ips - idx); /* skip remaining JEQs + RET0 */
         prog[i++] = (struct bpf_insn)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, ip_be, jt, 0);
     }
