@@ -103,22 +103,33 @@ int main(int argc, char **argv)
     char errbuf[PCAP_ERRBUF_SIZE];
     pcap_t *pcap = pcap_open_offline(pcap_path, errbuf);
     if (!pcap) { fprintf(stderr, "%s\n", errbuf); return 5; }
-    FILE *out = fopen(out_path, "wb");
-    if (!out) { perror("fopen"); return 6; }
+    int exit_code_mode = strcmp(out_path, "-") == 0;
+    FILE *out = NULL;
+    if (!exit_code_mode) {
+        out = fopen(out_path, "wb");
+        if (!out) { perror("fopen"); return 6; }
+    }
 
     const u_char *pkt;
     struct pcap_pkthdr *hdr;
+    int rc = 1; /* default: packet did not match */
     while (pcap_next_ex(pcap, &hdr, &pkt) == 1) {
         int ok = pcap_offline_filter(&comb, hdr, pkt);
-        unsigned char b = ok ? 1 : 0;
-        fwrite(&b, 1, 1, out);
+        if (exit_code_mode) {
+            rc = ok ? 0 : 1;
+            break; /* only first packet is relevant */
+        } else {
+            unsigned char b = ok ? 1 : 0;
+            fwrite(&b, 1, 1, out);
+        }
     }
-    fclose(out);
+    if (!exit_code_mode)
+        fclose(out);
 
     /* ─ 5. ניקוי ─ */
     pcap_close(pcap);
     pcap_freecode(&orig);
     free(new_insns);
     free(ips);
-    return 0;
+    return exit_code_mode ? rc : 0;
 }
