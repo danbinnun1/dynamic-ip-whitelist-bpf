@@ -8,7 +8,7 @@
  *
  *  Inputs
  *  ──────
- *    orig        : pointer to original sock_filter array
+ *    orig        : pointer to original bpf_insn array
  *    orig_len    : number of instructions in orig
  *    ips         : array of host-order IPv4 addresses to whitelist
  *    n_ips       : length of ips[]
@@ -16,7 +16,7 @@
  *  Output
  *  ──────
  *    *out_len    : filled with new program length
- *    return      : malloc-ed pointer to new sock_filter[]
+ *    return      : malloc-ed pointer to new bpf_insn[]
  *                  (caller must free)
  *
  *  Notes
@@ -28,7 +28,7 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <linux/filter.h>
+#include <pcap/bpf.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,11 +40,11 @@
 
 
 
-struct sock_filter *build_and_filter(const struct sock_filter *orig,
-                                     unsigned orig_len,
-                                     const uint32_t *ips,
-                                     size_t n_ips,
-                                     unsigned *out_len)
+struct bpf_insn *build_and_filter(const struct bpf_insn *orig,
+                                  unsigned orig_len,
+                                  const uint32_t *ips,
+                                  size_t n_ips,
+                                  unsigned *out_len)
 {
     if (!orig || !orig_len || !out_len)
         return NULL;
@@ -52,7 +52,7 @@ struct sock_filter *build_and_filter(const struct sock_filter *orig,
     /* edge-case: no whitelist – just clone the original program */
     if (!n_ips)
     {
-        struct sock_filter *clone = malloc(orig_len * sizeof(*clone));
+        struct bpf_insn *clone = malloc(orig_len * sizeof(*clone));
         if (!clone)
             return NULL;
         memcpy(clone, orig, orig_len * sizeof(*orig));
@@ -74,25 +74,25 @@ struct sock_filter *build_and_filter(const struct sock_filter *orig,
     const unsigned prelude_len = 1 + n_ips + 1; /* LD + JEQs + RET0 */
     const unsigned total_len = prelude_len + orig_len;
 
-    struct sock_filter *prog = calloc(total_len, sizeof(*prog));
+    struct bpf_insn *prog = calloc(total_len, sizeof(*prog));
     if (!prog)
         return NULL;
 
     unsigned i = 0;
 
     /* 1. LD src-IP (Ether + IPv4, no options) */
-    prog[i++] = (struct sock_filter)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 26);
+    prog[i++] = (struct bpf_insn)BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 26);
 
     /* 2. Chain of JEQ instructions */
     for (size_t idx = 0; idx < n_ips; ++idx)
     {
         uint32_t ip_be = htonl(ips[idx]);
         uint8_t jt = (uint8_t)(n_ips - idx); /* skip remaining JEQs + RET0 */
-        prog[i++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, ip_be, jt, 0);
+        prog[i++] = (struct bpf_insn)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, ip_be, jt, 0);
     }
 
     /* 3. Default DROP */
-    prog[i++] = (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, 0);
+    prog[i++] = (struct bpf_insn)BPF_STMT(BPF_RET | BPF_K, 0);
 
     /* 4. Append the original program verbatim */
     memcpy(&prog[i], orig, orig_len * sizeof(*orig));
@@ -101,9 +101,6 @@ struct sock_filter *build_and_filter(const struct sock_filter *orig,
     *out_len = i; /* should equal total_len */
     return prog;
 }
-
-static void die(const char *m) { perror(m); exit(1); }
-
 
 int main(int argc, char **argv)
 {
@@ -117,11 +114,17 @@ int main(int argc, char **argv)
 
     /* ─ 1. קומפילציה של הפילטר המקורי -- libpcap ─ */
     struct bpf_program orig = {0};
-    if (pcap_compile_nopcap(65535, DLT_EN10MB,
-                            &orig, orig_expr, 1, 0) != 0) {
-        fprintf(stderr, "pcap_compile_nopcap failed\n");
+    pcap_t *pc = pcap_open_dead(DLT_EN10MB, 65535);
+    if (!pc) {
+        fprintf(stderr, "pcap_open_dead failed\n");
         return 2;
     }
+    if (pcap_compile(pc, &orig, orig_expr, 1, 0) != 0) {
+        fprintf(stderr, "pcap_compile failed: %s\n", pcap_geterr(pc));
+        pcap_close(pc);
+        return 2;
+    }
+    pcap_close(pc);
 
     /* ─ 2. בניית white-list -- host-order ─ */
     size_t n_ips = (size_t)(argc - 3);
@@ -137,7 +140,7 @@ int main(int argc, char **argv)
 
     /* ─ 3. build_and_filter() ─ */
     unsigned new_len = 0;
-    struct sock_filter *new_insns =
+    struct bpf_insn *new_insns =
         build_and_filter(orig.bf_insns, orig.bf_len,
                          ips, n_ips, &new_len);
     if (!new_insns) {
