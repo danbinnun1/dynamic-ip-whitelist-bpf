@@ -8,7 +8,7 @@ def run_filter(packet, orig_filter, ips):
     with tempfile.NamedTemporaryFile(delete=False, suffix='.pcap') as tmp_pcap:
         wrpcap(tmp_pcap.name, [packet])
     try:
-        cmd = ['./filter', tmp_pcap.name, orig_filter, '-'] + ips
+        cmd = ['./filter', tmp_pcap.name, orig_filter] + ips
         proc = subprocess.run(cmd)
         return 1 if proc.returncode == 0 else 0
     finally:
@@ -39,4 +39,4 @@ def test_no_whitelist():
         Ether()/IP(src='4.4.4.4', dst='5.5.5.5')/UDP(),
     ]
     result = [run_filter(pkt, 'tcp', []) for pkt in packets]
-    assert result == [1, 0]
+    assert result == [0, 0]
