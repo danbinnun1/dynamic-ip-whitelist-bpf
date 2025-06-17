@@ -5,15 +5,19 @@ from scapy.all import Ether, IP, TCP, UDP, wrpcap
 
 
 def run_filter(packets, orig_filter, ips):
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pcap') as tmp:
-        wrpcap(tmp.name, packets)
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pcap') as tmp_pcap:
+        wrpcap(tmp_pcap.name, packets)
+    fd, out_path = tempfile.mkstemp()
+    os.close(fd)
     try:
-        cmd = ['./filter', tmp.name, orig_filter] + ips
-        result = subprocess.run(cmd, text=True, check=True, stdout=subprocess.PIPE)
-        output = [int(line) for line in result.stdout.strip().splitlines()]
-        return output
+        cmd = ['./filter', tmp_pcap.name, orig_filter, out_path] + ips
+        subprocess.run(cmd, check=True)
+        with open(out_path, 'rb') as f:
+            data = f.read()
+        return [b for b in data]
     finally:
-        os.unlink(tmp.name)
+        os.unlink(tmp_pcap.name)
+        os.unlink(out_path)
 
 def test_basic_whitelist():
     packets = [
@@ -33,3 +37,11 @@ def test_many_ips():
     result = run_filter(packets, 'tcp', ips)
     expected = [1]*50 + [0] + [0]
     assert result == expected
+
+def test_no_whitelist():
+    packets = [
+        Ether()/IP(src='4.4.4.4', dst='5.5.5.5')/TCP(),
+        Ether()/IP(src='4.4.4.4', dst='5.5.5.5')/UDP(),
+    ]
+    result = run_filter(packets, 'tcp', [])
+    assert result == [1, 0]
