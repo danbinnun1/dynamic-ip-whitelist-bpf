@@ -4,20 +4,15 @@ import tempfile
 from scapy.all import Ether, IP, TCP, UDP, wrpcap
 
 
-def run_filter(packets, orig_filter, ips):
+def run_filter(packet, orig_filter, ips):
     with tempfile.NamedTemporaryFile(delete=False, suffix='.pcap') as tmp_pcap:
-        wrpcap(tmp_pcap.name, packets)
-    fd, out_path = tempfile.mkstemp()
-    os.close(fd)
+        wrpcap(tmp_pcap.name, [packet])
     try:
-        cmd = ['./filter', tmp_pcap.name, orig_filter, out_path] + ips
-        subprocess.run(cmd, check=True)
-        with open(out_path, 'rb') as f:
-            data = f.read()
-        return [b for b in data]
+        cmd = ['./filter', tmp_pcap.name, orig_filter, '-'] + ips
+        proc = subprocess.run(cmd)
+        return 1 if proc.returncode == 0 else 0
     finally:
         os.unlink(tmp_pcap.name)
-        os.unlink(out_path)
 
 def test_basic_whitelist():
     packets = [
@@ -26,7 +21,7 @@ def test_basic_whitelist():
         Ether()/IP(src='3.3.3.3', dst='2.2.2.2')/TCP(),
         Ether()/IP(src='1.1.1.1', dst='2.2.2.2')/UDP(),
     ]
-    result = run_filter(packets, 'tcp', ['1.1.1.1', '3.3.3.3'])
+    result = [run_filter(pkt, 'tcp', ['1.1.1.1', '3.3.3.3']) for pkt in packets]
     assert result == [1, 0, 1, 0]
 
 def test_many_ips():
@@ -34,7 +29,7 @@ def test_many_ips():
     packets = [Ether()/IP(src=ip, dst='8.8.8.8')/TCP() for ip in ips]
     packets.append(Ether()/IP(src='10.0.1.1', dst='8.8.8.8')/TCP())
     packets.append(Ether()/IP(src=ips[0], dst='8.8.8.8')/UDP())
-    result = run_filter(packets, 'tcp', ips)
+    result = [run_filter(pkt, 'tcp', ips) for pkt in packets]
     expected = [1]*50 + [0] + [0]
     assert result == expected
 
@@ -43,5 +38,5 @@ def test_no_whitelist():
         Ether()/IP(src='4.4.4.4', dst='5.5.5.5')/TCP(),
         Ether()/IP(src='4.4.4.4', dst='5.5.5.5')/UDP(),
     ]
-    result = run_filter(packets, 'tcp', [])
+    result = [run_filter(pkt, 'tcp', []) for pkt in packets]
     assert result == [1, 0]

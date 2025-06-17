@@ -1,0 +1,20 @@
+# build artifacts
+filter
+*.gcda
+*.gcno
+
+# coverage output
+.cov*
+coverage*
+.c_cov.info
+c_cov.info
+c_html/
+.pycov/
+.coverage
+
+# python cache
+__pycache__/
+tests/__pycache__/
+
+# temporary files
+*.pcap
