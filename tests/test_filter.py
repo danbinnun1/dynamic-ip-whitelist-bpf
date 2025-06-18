@@ -6,13 +6,13 @@ from scapy.all import Ether, IP, TCP, UDP, wrpcap
 from scapy.layers.tls.all import TLS, TLSClientHello
 
 
-def run_filter(packet, orig_filter, ips):
+def is_matching(packet, orig_filter, ips):
     with tempfile.NamedTemporaryFile(delete=False, suffix='.pcap') as tmp_pcap:
         wrpcap(tmp_pcap.name, [packet])
     try:
         cmd = ['./filter', tmp_pcap.name, orig_filter] + ips
         proc = subprocess.run(cmd)
-        return 1 if proc.returncode == 0 else 0
+        return True if proc.returncode == 0 else False
     finally:
         os.unlink(tmp_pcap.name)
 
@@ -29,7 +29,7 @@ def run_filter(packet, orig_filter, ips):
             ],
             'tcp',
             ['1.1.1.1', '3.3.3.3'],
-            [1, 0, 1, 0],
+            [True, False, True, False],
         ),
         (
             [
@@ -39,7 +39,7 @@ def run_filter(packet, orig_filter, ips):
             ],
             'tcp',
             [f'10.0.0.{i}' for i in range(1, 51)],
-            [1]*50 + [0, 0],
+            [True]*50 + [False, False],
         ),
         (
             [
@@ -48,7 +48,7 @@ def run_filter(packet, orig_filter, ips):
             ],
             'tcp',
             [],
-            [0, 0],
+            [False, False],
         ),
         (
             [
@@ -60,11 +60,11 @@ def run_filter(packet, orig_filter, ips):
             ],
             'tcp port 443',
             ['1.1.1.1'],
-            [1, 0, 0],
+            [True, False, False],
         ),
     ],
 )
 def test_whitelist(packets, orig_filter, ips, expected):
-    result = [run_filter(pkt, orig_filter, ips) for pkt in packets]
+    result = [is_matching(pkt, orig_filter, ips) for pkt in packets]
     assert result == expected
 

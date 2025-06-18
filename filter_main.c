@@ -21,8 +21,8 @@
 
 /**
  * return values:
- *  0: packet didn't match
- *  1: packet matched
+ *  0: packet matched
+ *  1: packet didn't match
  *  2: error
  */
 int main(int argc, char **argv)
